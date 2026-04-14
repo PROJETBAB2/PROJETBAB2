@@ -40,13 +40,22 @@ function signAdminToken(user: { id: number; email: string }) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 }
 
+function isAdminJwtPayload(value: unknown): value is AdminJwtPayload {
+  if (!value || typeof value !== "object") return false;
+  const v = value as { sub?: unknown; email?: unknown };
+  return typeof v.sub === "number" && Number.isFinite(v.sub) && typeof v.email === "string";
+}
+
 function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
   const auth = String(req.header("authorization") || "");
   const m = auth.match(/^Bearer\s+(.+)$/i);
   const token = m?.[1];
   if (!token) return res.status(401).json({ error: "Non autorisé" });
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as AdminJwtPayload;
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (!isAdminJwtPayload(decoded)) {
+      return res.status(401).json({ error: "Non autorisé" });
+    }
     (req as any).adminUserId = decoded.sub;
     return next();
   } catch {
@@ -499,7 +508,11 @@ app.delete("/api/dishes/:id", requireAdmin, async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 4000;
+const PORT = (() => {
+  const raw = process.env.PORT;
+  const n = raw != null ? Number(raw) : NaN;
+  return Number.isFinite(n) ? n : 4000;
+})();
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`API running on port ${PORT}`);
