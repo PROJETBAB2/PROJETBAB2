@@ -179,6 +179,11 @@ export const App: React.FC = () => {
   const [reservationDurationMinutes, setReservationDurationMinutes] = useState<number>(120);
   const [checkinTableId, setCheckinTableId] = useState<number | null>(null);
 
+  const disableAuth =
+    (typeof window !== "undefined" && (import.meta as any).env?.VITE_DISABLE_AUTH === "1") ||
+    (typeof window !== "undefined" &&
+      String((import.meta as any).env?.VITE_DISABLE_AUTH || "").toLowerCase() === "true");
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkin") === "1") {
@@ -189,6 +194,13 @@ export const App: React.FC = () => {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (disableAuth) {
+      setAdminMode(true);
+      setAdminLoginOpen(false);
+    }
+  }, [disableAuth]);
 
   const publicBaseUrl =
     (typeof window !== "undefined" && (import.meta as any).env?.VITE_PUBLIC_BASE_URL) ||
@@ -576,7 +588,7 @@ export const App: React.FC = () => {
     if (screen === "dishes") loadDishes();
   }, [screen]);
 
-  if (adminLoginOpen && !adminMode) {
+  if (adminLoginOpen && !adminMode && !disableAuth) {
     return (
       <div className="app">
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
@@ -1225,7 +1237,12 @@ export const App: React.FC = () => {
                 className="btn"
                 onClick={() => {
                   setMessage("");
-                  setAdminLoginOpen(true);
+                  if (disableAuth) {
+                    setAdminMode(true);
+                    setAdminLoginOpen(false);
+                  } else {
+                    setAdminLoginOpen(true);
+                  }
                   setSelectedTable(null);
                 }}
               >
