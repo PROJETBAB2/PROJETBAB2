@@ -1,0 +1,11 @@
+node_modules
+**/node_modules
+dist
+**/dist
+.env
+.env.*
+uploads
+backend/dev.db
+backend/prisma/dev.db
+**/*.db
+.vercel
