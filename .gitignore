@@ -5,3 +5,4 @@ dist
 .env
 uploads
 backend/dev.db
+backend/prisma/dev.db
