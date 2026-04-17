@@ -6,3 +6,5 @@ dist
 uploads
 backend/dev.db
 backend/prisma/dev.db
+backend/prisma/prisma/
+backend/prisma/*.db-journal

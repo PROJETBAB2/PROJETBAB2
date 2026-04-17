@@ -1,6 +1,8 @@
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  // Sur Render, définir DATABASE_URL, ex: file:/var/data/dev.db (disque persistant)
+  // En local, tu peux utiliser un .env avec DATABASE_URL="file:./dev.db"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
