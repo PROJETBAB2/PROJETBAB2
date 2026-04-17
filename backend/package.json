@@ -15,7 +15,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:generate": "prisma generate",
     "render-build": "npm run prisma:generate && npm run build",
-    "start:render": "node -e \"const fs=require('fs'); const path=require('path'); const raw=process.env.DATABASE_URL||''; const m=raw.match(/^file:(.+)$/); if(m&&m[1]) fs.mkdirSync(path.dirname(m[1]), { recursive:true });\" && prisma migrate deploy && node dist/server.js"
+    "start:render": "sh -c 'DATABASE_URL=\"${DATABASE_URL:-file:./prisma/dev.db}\" prisma migrate deploy && node dist/server.js'"
   },
   "dependencies": {
     "@prisma/client": "^5.0.0",
