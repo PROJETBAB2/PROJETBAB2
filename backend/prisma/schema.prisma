@@ -1,7 +1,7 @@
 datasource db {
-  provider = "sqlite"
-  // Sur Render, définir DATABASE_URL, ex: file:/var/data/dev.db (disque persistant)
-  // En local, tu peux utiliser un .env avec DATABASE_URL="file:./dev.db"
+  provider = "postgresql"
+  // Render Postgres: mets l'URL (Internal ou External) dans DATABASE_URL.
+  // Si Render exige SSL, ajoute ?sslmode=require à la fin de l'URL.
   url      = env("DATABASE_URL")
 }
 
