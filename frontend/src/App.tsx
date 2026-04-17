@@ -184,6 +184,11 @@ export const App: React.FC = () => {
     (typeof window !== "undefined" &&
       String((import.meta as any).env?.VITE_DISABLE_AUTH || "").toLowerCase() === "true");
 
+  const emailOnlyLogin =
+    (typeof window !== "undefined" && (import.meta as any).env?.VITE_EMAIL_ONLY_LOGIN === "1") ||
+    (typeof window !== "undefined" &&
+      String((import.meta as any).env?.VITE_EMAIL_ONLY_LOGIN || "").toLowerCase() === "true");
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkin") === "1") {
@@ -262,7 +267,9 @@ export const App: React.FC = () => {
       const res = await fetch("/api/admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: adminEmail, password: adminPassword }),
+        body: JSON.stringify(
+          emailOnlyLogin ? { email: adminEmail } : { email: adminEmail, password: adminPassword }
+        ),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -614,15 +621,17 @@ export const App: React.FC = () => {
                 required
               />
             </label>
-            <label style={{ minWidth: "100%" }}>
-              Mot de passe
-              <input
-                type="password"
-                value={adminPassword}
-                onChange={(e) => setAdminPassword(e.target.value)}
-                required
-              />
-            </label>
+            {!emailOnlyLogin && (
+              <label style={{ minWidth: "100%" }}>
+                Mot de passe
+                <input
+                  type="password"
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  required
+                />
+              </label>
+            )}
             <div style={{ display: "flex", gap: "0.5rem" }}>
               <button type="submit">Se connecter</button>
               <button

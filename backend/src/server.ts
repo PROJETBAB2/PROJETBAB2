@@ -26,6 +26,30 @@ app.get("/api/health", (_req, res) => {
   return res.json({ ok: true });
 });
 
+app.get("/api/debug", (_req, res) => {
+  const commit =
+    process.env.RENDER_GIT_COMMIT ||
+    process.env.RENDER_COMMIT ||
+    process.env.VERCEL_GIT_COMMIT_SHA ||
+    process.env.GITHUB_SHA ||
+    "";
+
+  const disableAuth =
+    String(process.env.DISABLE_AUTH || "").trim() === "1" ||
+    String(process.env.DISABLE_AUTH || "").trim().toLowerCase() === "true";
+
+  const emailOnlyLogin =
+    String(process.env.EMAIL_ONLY_LOGIN || "").trim() === "1" ||
+    String(process.env.EMAIL_ONLY_LOGIN || "").trim().toLowerCase() === "true";
+
+  return res.json({
+    ok: true,
+    service: "restaurant-kiosk-backend",
+    commit,
+    features: { disableAuth, emailOnlyLogin },
+  });
+});
+
 const DEFAULT_SLOT_DURATION_MINUTES = 120;
 
 function parseDurationMinutes(raw: unknown): number {
@@ -40,6 +64,9 @@ function parseDurationMinutes(raw: unknown): number {
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
 const JWT_EXPIRES_IN = "7d";
+const EMAIL_ONLY_LOGIN =
+  String(process.env.EMAIL_ONLY_LOGIN || "").trim() === "1" ||
+  String(process.env.EMAIL_ONLY_LOGIN || "").trim().toLowerCase() === "true";
 
 type AdminJwtPayload = { sub: number; email: string };
 
@@ -111,13 +138,31 @@ app.post("/api/admin/login", async (req, res) => {
     const { email, password } = req.body || {};
     const e = String(email || "").trim().toLowerCase();
     const p = String(password || "");
-    if (!e || !p) return res.status(400).json({ error: "Email et mot de passe requis" });
+    if (!e) return res.status(400).json({ error: "Email requis" });
 
     const user = await prisma.user.findUnique({ where: { email: e } });
-    if (!user) return res.status(401).json({ error: "Identifiants invalides" });
+    if (!user) {
+      // Mode "email only": si le compte n'existe pas, on le crée.
+      if (EMAIL_ONLY_LOGIN) {
+        const passwordHash = await bcrypt.hash(`email-only:${Date.now()}`, 10);
+        const created = await prisma.user.create({
+          data: { email: e, passwordHash, name: "Restaurateur", locale: "fr" },
+        });
+        const token = signAdminToken({ id: created.id, email: created.email });
+        return res.json({
+          token,
+          user: { id: created.id, email: created.email, name: created.name, locale: created.locale },
+        });
+      }
+      return res.status(401).json({ error: "Identifiants invalides" });
+    }
 
-    const ok = await bcrypt.compare(p, user.passwordHash);
-    if (!ok) return res.status(401).json({ error: "Identifiants invalides" });
+    // Mode email-only : mot de passe facultatif
+    if (!EMAIL_ONLY_LOGIN) {
+      if (!p) return res.status(400).json({ error: "Mot de passe requis" });
+      const ok = await bcrypt.compare(p, user.passwordHash);
+      if (!ok) return res.status(401).json({ error: "Identifiants invalides" });
+    }
 
     const token = signAdminToken({ id: user.id, email: user.email });
     return res.json({
