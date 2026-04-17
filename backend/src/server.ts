@@ -18,6 +18,14 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use("/uploads", express.static(UPLOAD_DIR));
 
+app.get("/api", (_req, res) => {
+  return res.json({ ok: true, service: "restaurant-kiosk-backend" });
+});
+
+app.get("/api/health", (_req, res) => {
+  return res.json({ ok: true });
+});
+
 const DEFAULT_SLOT_DURATION_MINUTES = 120;
 
 function parseDurationMinutes(raw: unknown): number {
