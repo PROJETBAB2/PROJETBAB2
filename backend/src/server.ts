@@ -522,7 +522,47 @@ const PORT = (() => {
   return Number.isFinite(n) ? n : 4000;
 })();
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`API running on port ${PORT}`);
-});
+async function bootstrapAdminFromEnv() {
+  const emailRaw = process.env.ADMIN_EMAIL;
+  const passwordRaw = process.env.ADMIN_PASSWORD;
+  const nameRaw = process.env.ADMIN_NAME;
+  const localeRaw = process.env.ADMIN_LOCALE;
+
+  if (!emailRaw || !passwordRaw) return;
+
+  const email = String(emailRaw).trim().toLowerCase();
+  const password = String(passwordRaw);
+  const name = String(nameRaw || "Restaurateur").trim() || "Restaurateur";
+  const locale = String(localeRaw || "fr").trim() || "fr";
+
+  if (!email.includes("@")) {
+    console.warn("ADMIN_EMAIL invalide: bootstrap ignoré.");
+    return;
+  }
+  if (password.length < 6) {
+    console.warn("ADMIN_PASSWORD trop court (<6): bootstrap ignoré.");
+    return;
+  }
+
+  try {
+    const count = await prisma.user.count();
+    if (count > 0) return;
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    await prisma.user.create({
+      data: { email, passwordHash, name, locale },
+    });
+    console.log("Compte admin initial créé via variables d'environnement.");
+  } catch (e: any) {
+    console.error("Bootstrap admin env échoué:", e?.message || e);
+  }
+}
+
+bootstrapAdminFromEnv()
+  .catch(() => undefined)
+  .finally(() => {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`API running on port ${PORT}`);
+    });
+  });
 
