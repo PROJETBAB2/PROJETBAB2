@@ -1,7 +1,7 @@
 datasource db {
-  // Actuellement : SQLite + migrations du dépôt (local sans cloud). DATABASE_URL="file:./dev.db"
-  // Déploiement plus tard : passer à provider "postgresql", une URL Postgres, et migrations Prisma adaptées.
-  provider = "sqlite"
+  // Local : DATABASE_URL externe Render Postgres ou une URL postgresql:// locale.
+  // Render : DATABASE_URL interne ou externe (postgresql://...).
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
