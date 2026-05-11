@@ -257,10 +257,15 @@ function dishImageUrl(filename: string): string {
 }
 
 function saveBase64Image(dataUrl: string): string {
-  const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
-  if (!match) throw new Error("Format image invalide");
-  const ext = (match[1] === "jpeg" ? "jpg" : match[1]).toLowerCase();
-  const base64 = match[2];
+  const idx = dataUrl.indexOf(";base64,");
+  if (idx === -1) throw new Error("Format image invalide");
+  const header = dataUrl.slice(0, idx).toLowerCase();
+  if (!header.startsWith("data:image/")) throw new Error("Format image invalide");
+  const base64 = dataUrl.slice(idx + ";base64,".length);
+  const mime = header.replace(/^data:image\//, "").split(";")[0].trim();
+  let ext = mime.split("+")[0].split("/").pop() || "png";
+  if (ext === "jpeg") ext = "jpg";
+  ext = ext.replace(/[^a-z0-9]/g, "") || "png";
   const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const filename = `dish-${unique}.${ext}`;
   const filepath = path.join(UPLOAD_DIR, filename);

@@ -17,8 +17,16 @@ function dishImageSrc(url: string): string {
   if (!u) return "";
   if (u.startsWith("data:")) return u;
   if (u.startsWith("http://") || u.startsWith("https://")) return u;
-  const path = u.startsWith("/") ? u : `/${u}`;
-  return apiUrl(path);
+  if (u.startsWith("//")) return `https:${u}`;
+  let rel = u;
+  if (!rel.startsWith("/uploads/")) {
+    if (rel.startsWith("uploads/")) rel = `/${rel}`;
+    else {
+      const file = rel.split(/[/\\]/).pop() || rel;
+      rel = `/uploads/${file}`;
+    }
+  }
+  return apiUrl(rel);
 }
 
 function useResetForm(resetTrigger: number, reset: () => void) {
