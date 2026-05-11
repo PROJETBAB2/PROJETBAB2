@@ -2,6 +2,15 @@ import React, { useEffect, useRef, useState } from "react";
 import { DEV_TEST_RESTAURATEUR } from "./devTestCredentials";
 // QR codes supprimés de l'UI restaurateur.
 
+/** En prod (Vercel), définir VITE_API_BASE_URL = URL du backend Render, sans slash final. */
+function apiUrl(path: string): string {
+  const raw = String((import.meta as any).env?.VITE_API_BASE_URL || "").trim();
+  const base = raw.replace(/\/+$/, "");
+  if (!base) return path;
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 function useResetForm(resetTrigger: number, reset: () => void) {
   const prev = useRef(resetTrigger);
   const resetRef = useRef(reset);
@@ -150,7 +159,7 @@ const AddDishForm: React.FC<AddDishFormProps> = ({ t, lang, resetTrigger, onSucc
       const token = typeof window !== "undefined" ? window.localStorage.getItem("adminToken") || "" : "";
       const headers = new Headers({ "Content-Type": "application/json" });
       if (token) headers.set("authorization", `Bearer ${token}`);
-      const res = await fetch("/api/dishes", {
+      const res = await fetch(apiUrl("/api/dishes"), {
         method: "POST",
         headers,
         body: JSON.stringify(body),
@@ -313,14 +322,15 @@ export const App: React.FC = () => {
   const adminFetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
     const headers = new Headers(init.headers || undefined);
     if (adminToken) headers.set("authorization", `Bearer ${adminToken}`);
-    return fetch(input, { ...init, headers });
+    const url = typeof input === "string" ? apiUrl(input) : input;
+    return fetch(url, { ...init, headers });
   };
 
   const submitAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage("");
     try {
-      const res = await fetch("/api/admin/login", {
+      const res = await fetch(apiUrl("/api/admin/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -807,7 +817,7 @@ export const App: React.FC = () => {
   // Chargement des tables pour le mode admin
   const loadAllTables = async () => {
     try {
-      const res = await fetch("/api/tables");
+      const res = await fetch(apiUrl("/api/tables"));
       if (!res.ok) return;
       const data: BaseTable[] = await res.json();
       setAllTables(data);
@@ -818,7 +828,7 @@ export const App: React.FC = () => {
 
   const loadDishes = async () => {
     try {
-      const res = await fetch("/api/dishes");
+      const res = await fetch(apiUrl("/api/dishes"));
       if (!res.ok) return;
       const data: Dish[] = await res.json();
       setDishes(data);
@@ -829,7 +839,7 @@ export const App: React.FC = () => {
 
   const loadAdminDishes = async () => {
     try {
-      const res = await fetch("/api/dishes");
+      const res = await fetch(apiUrl("/api/dishes"));
       if (!res.ok) return;
       const data: Dish[] = await res.json();
       setAdminDishes(data);
@@ -873,9 +883,11 @@ export const App: React.FC = () => {
 
     try {
       const res = await fetch(
-        `/api/plan-status?date=${encodeURIComponent(
-          date
-        )}&time=${encodeURIComponent(time)}&guests=${guests}&durationMinutes=${reservationDurationMinutes}`
+        apiUrl(
+          `/api/plan-status?date=${encodeURIComponent(
+            date
+          )}&time=${encodeURIComponent(time)}&guests=${guests}&durationMinutes=${reservationDurationMinutes}`
+        )
       );
       if (!res.ok) {
         setMessage(t.loadError);
@@ -902,7 +914,7 @@ export const App: React.FC = () => {
     }
     setMessage("");
 
-    const res = await fetch("/api/reservations", {
+    const res = await fetch(apiUrl("/api/reservations"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
