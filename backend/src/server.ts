@@ -238,10 +238,22 @@ app.get("/api/admin/me", requireAdmin, async (req, res) => {
   }
 });
 
+/** URL publique du backend (pour que les images /uploads s’affichent depuis Vercel ou d’autres domaines). */
+function publicBackendBase(): string {
+  return String(process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
+}
+
 function dishImageUrl(filename: string): string {
   if (!filename) return "";
-  if (filename.startsWith("http") || filename.startsWith("/")) return filename;
-  return `/uploads/${path.basename(filename)}`;
+  if (filename.startsWith("http://") || filename.startsWith("https://")) return filename;
+  const rel = filename.startsWith("/uploads/")
+    ? filename
+    : `/uploads/${path.basename(filename)}`;
+  const base = publicBackendBase();
+  if (base) return `${base}${rel}`;
+  return rel;
 }
 
 function saveBase64Image(dataUrl: string): string {

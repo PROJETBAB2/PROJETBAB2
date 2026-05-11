@@ -11,6 +11,16 @@ function apiUrl(path: string): string {
   return `${base}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+/** URLs `/uploads/...` : en prod elles doivent viser le backend Render, pas le domaine Vercel. */
+function dishImageSrc(url: string): string {
+  const u = (url || "").trim();
+  if (!u) return "";
+  if (u.startsWith("data:")) return u;
+  if (u.startsWith("http://") || u.startsWith("https://")) return u;
+  const path = u.startsWith("/") ? u : `/${u}`;
+  return apiUrl(path);
+}
+
 function useResetForm(resetTrigger: number, reset: () => void) {
   const prev = useRef(resetTrigger);
   const resetRef = useRef(reset);
@@ -1514,7 +1524,14 @@ export const App: React.FC = () => {
                     <div className="dish-image-preview">
                       <span>{t.imagePreview}</span>
                       <img
-                        src={dishImagePreview || adminDishes.find((d) => d.id === editingDishId)?.imageUrl || ""}
+                        src={(() => {
+                          const prev = dishImagePreview.trim();
+                          if (prev.startsWith("data:")) return prev;
+                          if (prev) return dishImageSrc(prev);
+                          return dishImageSrc(
+                            adminDishes.find((d) => d.id === editingDishId)?.imageUrl || ""
+                          );
+                        })()}
                         alt={dishDisplayName(
                           {
                             id: editingDishId ?? 0,
@@ -1547,7 +1564,7 @@ export const App: React.FC = () => {
               {adminDishes.map((d) => (
                 <div key={d.id} className="dish-card admin-dish-card">
                   {d.imageUrl && (
-                    <img src={d.imageUrl} alt={dishDisplayName(d, lang)} />
+                    <img src={dishImageSrc(d.imageUrl)} alt={dishDisplayName(d, lang)} />
                   )}
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
@@ -1715,7 +1732,7 @@ export const App: React.FC = () => {
             {dishes.map((d) => (
               <div key={d.id} className="dish-card">
                 {d.imageUrl ? (
-                  <img src={d.imageUrl} alt={dishDisplayName(d, lang)} />
+                  <img src={dishImageSrc(d.imageUrl)} alt={dishDisplayName(d, lang)} />
                 ) : (
                   <div className="dish-card-no-image" />
                 )}
