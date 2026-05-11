@@ -163,6 +163,24 @@ img {
   box-shadow: var(--shadow-sm);
 }
 
+.admin-login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(6px);
+}
+
+.admin-login-card {
+  max-width: 420px;
+  width: 100%;
+  position: relative;
+  z-index: 1001;
+}
 
 .card {
   background: var(--card);
@@ -240,31 +258,50 @@ img {
   justify-content: flex-end;
 }
 
-.admin-actions button {
+/* Boutons admin : classes explicites (évite :first-of-type / :last-of-type avec boutons conditionnels). */
+.admin-actions .admin-nav-btn,
+.admin-actions .admin-toolbar-btn {
   padding: 0.7rem 1.15rem;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--card);
   color: var(--text);
   font-weight: 600;
+  white-space: nowrap;
+  min-height: 2.75rem;
 }
 
-.admin-actions button:first-of-type {
-  padding: 0.7rem 1.3rem;
-  border-radius: 999px;
-  border: none;
+.admin-actions .admin-nav-btn.is-active {
   background: var(--accent);
-  color: white;
-  font-weight: 600;
+  color: #fff;
+  border-color: transparent;
   box-shadow: none;
 }
 
-.admin-actions button:last-of-type {
+.admin-actions .admin-back-btn {
   padding: 0.7rem 1.3rem;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+  min-height: 2.75rem;
+}
+
+.booking-context-banner {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto 0.75rem;
+  padding: 0.9rem 1.15rem;
+  border-radius: 1rem;
+  background: linear-gradient(135deg, rgba(22, 163, 74, 0.14), rgba(22, 163, 74, 0.06));
+  border: 1px solid rgba(22, 163, 74, 0.35);
+  color: var(--text);
+  font-size: 0.95rem;
+  line-height: 1.45;
+  font-weight: 600;
+  text-align: center;
 }
 
 .form {
@@ -400,6 +437,39 @@ button:active {
 
 .admin-sidebar small {
   color: var(--muted);
+}
+
+.admin-table-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.admin-sidebar .btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.admin-table-actions .btn {
+  width: auto;
+  flex: 1;
+  min-width: 120px;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn.danger {
+  border-color: rgba(185, 28, 28, 0.28);
+  background: rgba(185, 28, 28, 0.08);
+  color: #991b1b;
+}
+
+.btn.danger:hover {
+  background: rgba(185, 28, 28, 0.14);
 }
 
 .admin-table-list {
@@ -567,6 +637,26 @@ button:active {
   gap: 1rem;
   align-items: flex-start;
   margin-bottom: 1.5rem;
+}
+
+.dish-form button {
+  min-height: 2.75rem;
+  padding: 0.75rem 1.1rem;
+}
+
+.dish-form-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+  width: 100%;
+}
+
+.admin-dish-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .dish-form label {
   min-width: 160px;

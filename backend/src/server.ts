@@ -5,9 +5,33 @@ import fs from "fs";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { DEV_TEST_RESTAURATEUR } from "./devTestCredentials";
 
 const prisma = new PrismaClient();
 const app = express();
+
+/** SQLite : unicité sensible à la casse ; on uniformise pour que findUnique(login) marche. */
+async function normalizeAllUserEmails() {
+  try {
+    await prisma.$connect();
+    await prisma.$executeRawUnsafe(`UPDATE "User" SET email = lower(trim(email))`);
+  } catch (e) {
+    console.warn("normalizeAllUserEmails:", e);
+  }
+}
+
+/** Crée / met à jour le compte défini dans devTestCredentials.ts (démarrage + login). */
+async function upsertBuiltinTestAdmin() {
+  await normalizeAllUserEmails();
+  const email = DEV_TEST_RESTAURATEUR.email.trim().toLowerCase();
+  const passwordHash = await bcrypt.hash(DEV_TEST_RESTAURATEUR.password, 10);
+  const { name, locale } = DEV_TEST_RESTAURATEUR;
+  await prisma.user.upsert({
+    where: { email },
+    create: { email, passwordHash, name, locale },
+    update: { passwordHash, name, locale },
+  });
+}
 
 const UPLOAD_DIR = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(UPLOAD_DIR)) {
@@ -28,10 +52,10 @@ app.get("/api/health", (_req, res) => {
 
 app.get("/api/debug", (_req, res) => {
   const commit =
-    process.env.RENDER_GIT_COMMIT ||
-    process.env.RENDER_COMMIT ||
-    process.env.VERCEL_GIT_COMMIT_SHA ||
+    process.env.GIT_COMMIT ||
+    process.env.BUILD_COMMIT ||
     process.env.GITHUB_SHA ||
+    process.env.CI_COMMIT_SHA ||
     "";
 
   const disableAuth =
@@ -42,10 +66,20 @@ app.get("/api/debug", (_req, res) => {
     String(process.env.EMAIL_ONLY_LOGIN || "").trim() === "1" ||
     String(process.env.EMAIL_ONLY_LOGIN || "").trim().toLowerCase() === "true";
 
+  const dbUrl = String(process.env.DATABASE_URL || "");
+  const dbDriver = dbUrl.startsWith("file:")
+    ? "sqlite"
+    : dbUrl.startsWith("postgres")
+      ? "postgresql"
+      : dbUrl
+        ? "other"
+        : "unset";
+
   return res.json({
     ok: true,
     service: "restaurant-kiosk-backend",
     commit,
+    dbDriver,
     features: { disableAuth, emailOnlyLogin },
   });
 });
@@ -135,10 +169,22 @@ app.post("/api/admin/setup", async (req, res) => {
 
 app.post("/api/admin/login", async (req, res) => {
   try {
+    await normalizeAllUserEmails();
+
     const { email, password } = req.body || {};
     const e = String(email || "").trim().toLowerCase();
-    const p = String(password || "");
+    const p = String(password ?? "").trim();
     if (!e) return res.status(400).json({ error: "Email requis" });
+
+    const builtinEmail = DEV_TEST_RESTAURATEUR.email.trim().toLowerCase();
+    if (e === builtinEmail) {
+      try {
+        await upsertBuiltinTestAdmin();
+      } catch (syncErr: any) {
+        console.error("upsert compte test au login:", syncErr?.message || syncErr);
+        return res.status(503).json({ error: "Base de données indisponible (vérifiez DATABASE_URL et Prisma)." });
+      }
+    }
 
     const user = await prisma.user.findUnique({ where: { email: e } });
     if (!user) {
@@ -160,7 +206,10 @@ app.post("/api/admin/login", async (req, res) => {
     // Mode email-only : mot de passe facultatif
     if (!EMAIL_ONLY_LOGIN) {
       if (!p) return res.status(400).json({ error: "Mot de passe requis" });
-      const ok = await bcrypt.compare(p, user.passwordHash);
+      const builtinEm = DEV_TEST_RESTAURATEUR.email.trim().toLowerCase();
+      const builtinPw = DEV_TEST_RESTAURATEUR.password;
+      const matchesBuiltin = e === builtinEm && p === builtinPw;
+      const ok = matchesBuiltin || (await bcrypt.compare(p, user.passwordHash));
       if (!ok) return res.status(401).json({ error: "Identifiants invalides" });
     }
 
@@ -169,7 +218,8 @@ app.post("/api/admin/login", async (req, res) => {
       token,
       user: { id: user.id, email: user.email, name: user.name, locale: user.locale },
     });
-  } catch {
+  } catch (err) {
+    console.error("POST /api/admin/login", err);
     return res.status(500).json({ error: "Erreur serveur" });
   }
 });
@@ -213,18 +263,21 @@ const isOverlapping = (
   endB: number
 ) => startA < endB && startB < endA;
 
-const CHECKIN_GRACE_MINUTES = 15;
-
 function minutesFromHHMM(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
   return h * 60 + m;
 }
 
-function shouldBlockTableAtEvalTime(reservation: { status: string; checkedInAt: Date | null; startTime: string }, evalMinutes: number) {
-  if (reservation.status === "EXPIRED" || reservation.status === "CANCELLED") return false;
-  if (reservation.checkedInAt) return true;
-  const start = minutesFromHHMM(reservation.startTime);
-  return evalMinutes <= start + CHECKIN_GRACE_MINUTES;
+function shouldBlockTableAtEvalTime(reservation: { status: string }, _evalMinutes: number) {
+  // Une réservation bloque la table sur toute sa durée, qu'il y ait eu check-in ou non.
+  // Le "grace period" ne sert qu'à autoriser un check-in, pas à libérer la table.
+  return reservation.status !== "EXPIRED" && reservation.status !== "CANCELLED";
+}
+
+function maxTimeHHMM(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return minutesFromHHMM(a) >= minutesFromHHMM(b) ? a : b;
 }
 
 // --- Routes ADMIN tables ---
@@ -233,6 +286,7 @@ function shouldBlockTableAtEvalTime(reservation: { status: string; checkedInAt: 
 app.get("/api/tables", async (_req, res) => {
   try {
     const tables = await prisma.table.findMany({
+      where: { isActive: true },
       orderBy: { id: "asc" },
     });
     return res.json(tables);
@@ -385,8 +439,7 @@ app.get("/api/plan-status", async (req, res) => {
         if (!shouldBlockTableAtEvalTime(r, startMinutes)) continue;
         if (isOverlapping(startMinutes, endMinutes, rStart, rEnd)) {
           status = "busy";
-          busyUntil = r.endTime;
-          break;
+          busyUntil = maxTimeHHMM(busyUntil, r.endTime);
         }
       }
 
@@ -438,47 +491,6 @@ app.post("/api/reservations", async (req, res) => {
   }
 });
 
-// Check-in via QR (QR fixe par table)
-app.post("/api/checkin", async (req, res) => {
-  try {
-    const { tableId } = req.body || {};
-    const id = Number(tableId);
-    if (!id) return res.status(400).json({ error: "tableId requis" });
-
-    const now = new Date();
-    const yyyy = now.getFullYear();
-    const mm = String(now.getMonth() + 1).padStart(2, "0");
-    const dd = String(now.getDate()).padStart(2, "0");
-    const today = `${yyyy}-${mm}-${dd}`;
-    const nowMinutes = now.getHours() * 60 + now.getMinutes();
-
-    const reservations = await prisma.reservation.findMany({
-      where: { tableId: id, date: today },
-      orderBy: { startTime: "asc" },
-    });
-
-    const candidate = reservations.find((r) => {
-      if (r.checkedInAt) return false;
-      if (r.status === "EXPIRED" || r.status === "CANCELLED") return false;
-      const start = minutesFromHHMM(r.startTime);
-      return nowMinutes >= start && nowMinutes <= start + CHECKIN_GRACE_MINUTES;
-    });
-
-    if (!candidate) {
-      return res.status(400).json({ error: "Aucune réservation à confirmer (hors délai ou inexistante)." });
-    }
-
-    await prisma.reservation.update({
-      where: { id: candidate.id },
-      data: { checkedInAt: now, status: "CHECKED_IN" },
-    });
-
-    return res.json({ ok: true });
-  } catch {
-    return res.status(500).json({ error: "Erreur serveur" });
-  }
-});
-
 // --- Plats / Menu (JSON + base64 image, pas de multipart) ---
 
 app.get("/api/dishes", async (_req, res) => {
@@ -494,10 +506,18 @@ app.get("/api/dishes", async (_req, res) => {
   }
 });
 
+function trimStr(v: unknown): string {
+  return v != null ? String(v).trim() : "";
+}
+
 app.post("/api/dishes", requireAdmin, async (req, res) => {
   try {
-    const { name: rawName, price: rawPrice, imageBase64, isQuick } = req.body || {};
-    const name = (rawName != null ? String(rawName) : "").trim();
+    const body = req.body || {};
+    const { name: rawName, price: rawPrice, imageBase64, isQuick } = body;
+    const name = trimStr(rawName);
+    const nameEn = trimStr(body.nameEn);
+    const nameNl = trimStr(body.nameNl);
+    const nameEs = trimStr(body.nameEs);
     const price = rawPrice != null ? parseFloat(String(rawPrice)) : NaN;
 
     if (!name) return res.status(400).json({ error: "Nom du plat requis" });
@@ -508,7 +528,7 @@ app.post("/api/dishes", requireAdmin, async (req, res) => {
       imageUrl = saveBase64Image(imageBase64);
     }
     const dish = await prisma.dish.create({
-      data: { name, price, imageUrl, isQuick: Boolean(isQuick) },
+      data: { name, nameEn, nameNl, nameEs, price, imageUrl, isQuick: Boolean(isQuick) },
     });
     return res.status(201).json({ ...dish, imageUrl: dishImageUrl(imageUrl) });
   } catch (e: any) {
@@ -520,7 +540,8 @@ app.post("/api/dishes", requireAdmin, async (req, res) => {
 app.put("/api/dishes/:id", requireAdmin, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const { name: rawName, price: rawPrice, imageBase64, isQuick } = req.body || {};
+    const body = req.body || {};
+    const { name: rawName, price: rawPrice, imageBase64, isQuick } = body;
     const existing = await prisma.dish.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ error: "Plat introuvable" });
 
@@ -535,11 +556,17 @@ app.put("/api/dishes/:id", requireAdmin, async (req, res) => {
 
     const name = rawName != null ? String(rawName).trim() : undefined;
     const price = rawPrice != null ? parseFloat(String(rawPrice)) : undefined;
+    const nameEn = body.nameEn !== undefined ? trimStr(body.nameEn) : undefined;
+    const nameNl = body.nameNl !== undefined ? trimStr(body.nameNl) : undefined;
+    const nameEs = body.nameEs !== undefined ? trimStr(body.nameEs) : undefined;
 
     const dish = await prisma.dish.update({
       where: { id },
       data: {
         ...(name !== undefined && { name }),
+        ...(nameEn !== undefined && { nameEn }),
+        ...(nameNl !== undefined && { nameNl }),
+        ...(nameEs !== undefined && { nameEs }),
         ...(price !== undefined && !Number.isNaN(price) && { price }),
         ...(isQuick !== undefined && { isQuick: Boolean(isQuick) }),
         imageUrl,
@@ -610,7 +637,23 @@ async function bootstrapAdminFromEnv() {
   }
 }
 
+/**
+ * Crée ou met à jour le compte défini dans devTestCredentials.ts pour qu’il corresponde
+ * toujours au mot de passe du fichier (évite « Identifiants invalides » après un ancien hash).
+ */
+async function bootstrapDevTestAdmin() {
+  try {
+    await upsertBuiltinTestAdmin();
+    console.log(
+      `Compte restaurateur de test prêt (${DEV_TEST_RESTAURATEUR.email.trim().toLowerCase()}) — mot de passe : voir devTestCredentials.ts`
+    );
+  } catch (e: any) {
+    console.error("Bootstrap compte test échoué:", e?.message || e);
+  }
+}
+
 bootstrapAdminFromEnv()
+  .then(() => bootstrapDevTestAdmin())
   .catch(() => undefined)
   .finally(() => {
     app.listen(PORT, "0.0.0.0", () => {

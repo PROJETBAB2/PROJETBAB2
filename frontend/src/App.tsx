@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { QRCodeCanvas } from "qrcode.react";
+import React, { useEffect, useRef, useState } from "react";
+import { DEV_TEST_RESTAURATEUR } from "./devTestCredentials";
+// QR codes supprimés de l'UI restaurateur.
 
 function useResetForm(resetTrigger: number, reset: () => void) {
   const prev = useRef(resetTrigger);
@@ -30,26 +31,66 @@ type PlanTable = BaseTable & {
 };
 
 type AvailabilityResponse = PlanTable[];
-type Screen = "menu" | "now" | "later" | "dishes" | "checkin";
+type Screen = "menu" | "now" | "later" | "dishes";
 type Lang = "fr" | "en" | "nl" | "es";
+type BookingEntry = "quick" | "standard" | null;
 
 type Dish = {
   id: number;
   name: string;
+  nameEn?: string;
+  nameNl?: string;
+  nameEs?: string;
   price: number;
   imageUrl: string;
   isQuick?: boolean;
 };
 
+function dishDisplayName(d: Dish, lang: Lang): string {
+  const en = (d.nameEn ?? "").trim();
+  const nl = (d.nameNl ?? "").trim();
+  const es = (d.nameEs ?? "").trim();
+  if (lang === "en" && en) return en;
+  if (lang === "nl" && nl) return nl;
+  if (lang === "es" && es) return es;
+  return d.name;
+}
+
+function T4(lang: Lang, fr: string, en: string, nl: string, es: string): string {
+  switch (lang) {
+    case "en":
+      return en;
+    case "nl":
+      return nl;
+    case "es":
+      return es;
+    default:
+      return fr;
+  }
+}
+
+function shapeDisplay(lang: Lang, code: string): string {
+  const u = code.toUpperCase();
+  if (u === "SQUARE")
+    return T4(lang, "Carrée", "Square", "Vierkant", "Cuadrada");
+  if (u === "RECTANGLE")
+    return T4(lang, "Rectangulaire", "Rectangle", "Rechthoekig", "Rectangular");
+  return T4(lang, "Ronde", "Round", "Rond", "Redonda");
+}
+
 type AddDishFormProps = {
   t: Record<string, unknown>;
+  lang: Lang;
   resetTrigger: number;
   onSuccess: () => void;
   onError: (message: string) => void;
 };
 
-const AddDishForm: React.FC<AddDishFormProps> = ({ t, resetTrigger, onSuccess, onError }) => {
+const AddDishForm: React.FC<AddDishFormProps> = ({ t, lang, resetTrigger, onSuccess, onError }) => {
   const [name, setName] = useState("");
+  const [nameEn, setNameEn] = useState("");
+  const [nameNl, setNameNl] = useState("");
+  const [nameEs, setNameEs] = useState("");
   const [price, setPrice] = useState("");
   const [imagePreview, setImagePreview] = useState("");
   const [isQuick, setIsQuick] = useState(false);
@@ -57,6 +98,9 @@ const AddDishForm: React.FC<AddDishFormProps> = ({ t, resetTrigger, onSuccess, o
 
   const resetForm = () => {
     setName("");
+    setNameEn("");
+    setNameNl("");
+    setNameEs("");
     setPrice("");
     setImagePreview("");
     setIsQuick(false);
@@ -81,11 +125,22 @@ const AddDishForm: React.FC<AddDishFormProps> = ({ t, resetTrigger, onSuccess, o
     const n = name.trim();
     const p = parseFloat(price);
     if (!n || Number.isNaN(p) || p < 0) {
-      onError((t.fillAllFields as string) || "Remplissez les champs.");
+      onError(t.fillAllFields as string);
       return;
     }
-    const body: { name: string; price: number; imageBase64?: string; isQuick?: boolean } = {
+    const body: {
+      name: string;
+      nameEn: string;
+      nameNl: string;
+      nameEs: string;
+      price: number;
+      imageBase64?: string;
+      isQuick?: boolean;
+    } = {
       name: n,
+      nameEn: nameEn.trim(),
+      nameNl: nameNl.trim(),
+      nameEs: nameEs.trim(),
       price: p,
       isQuick,
     };
@@ -108,7 +163,15 @@ const AddDishForm: React.FC<AddDishFormProps> = ({ t, resetTrigger, onSuccess, o
       resetForm();
       onSuccess();
     } catch {
-      onError("Erreur réseau.");
+      onError(
+        T4(
+          lang,
+          "Erreur réseau.",
+          "Network error.",
+          "Netwerkfout.",
+          "Error de red."
+        )
+      );
     }
   };
 
@@ -117,6 +180,21 @@ const AddDishForm: React.FC<AddDishFormProps> = ({ t, resetTrigger, onSuccess, o
       <label>
         {t.dishNameLabel as string}
         <input type="text" value={name} onChange={(e) => setName(e.target.value)} required />
+      </label>
+      <p className="dish-i18n-hint" style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "var(--muted)" }}>
+        {t.dishI18nHint as string}
+      </p>
+      <label>
+        {t.dishNameEnLabel as string}
+        <input type="text" value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
+      </label>
+      <label>
+        {t.dishNameNlLabel as string}
+        <input type="text" value={nameNl} onChange={(e) => setNameNl(e.target.value)} />
+      </label>
+      <label>
+        {t.dishNameEsLabel as string}
+        <input type="text" value={nameEs} onChange={(e) => setNameEs(e.target.value)} />
       </label>
       <label>
         {t.priceLabel as string}
@@ -130,7 +208,8 @@ const AddDishForm: React.FC<AddDishFormProps> = ({ t, resetTrigger, onSuccess, o
         />
       </label>
       <label>
-        {t.imageLabel as string} <span className="optional">(optionnel)</span>
+        {t.imageLabel as string}{" "}
+        <span className="optional">{t.optionalShort as string}</span>
         <input ref={fileInputRef} type="file" accept="image/*" onChange={onFileChange} />
       </label>
       <label style={{ minWidth: 220 }}>
@@ -148,7 +227,9 @@ const AddDishForm: React.FC<AddDishFormProps> = ({ t, resetTrigger, onSuccess, o
           <img src={imagePreview} alt="" />
         </div>
       )}
-      <button type="submit">{t.addDish as string}</button>
+      <button type="submit" className="btn primary">
+        {t.addDish as string}
+      </button>
     </form>
   );
 };
@@ -163,12 +244,21 @@ export const App: React.FC = () => {
   const [message, setMessage] = useState<string>("");
   const [adminMode, setAdminMode] = useState<boolean>(false);
   const [adminLoginOpen, setAdminLoginOpen] = useState<boolean>(false);
-  const [adminEmail, setAdminEmail] = useState<string>("");
-  const [adminPassword, setAdminPassword] = useState<string>("");
+  const [adminEmail, setAdminEmail] = useState<string>(() => DEV_TEST_RESTAURATEUR.email);
+  const [adminPassword, setAdminPassword] = useState<string>(() => DEV_TEST_RESTAURATEUR.password);
   const [adminToken, setAdminToken] = useState<string>(
     typeof window !== "undefined" ? window.localStorage.getItem("adminToken") || "" : ""
   );
   const [allTables, setAllTables] = useState<BaseTable[]>([]);
+  const [mergeHistory, setMergeHistory] = useState<Record<number, BaseTable[]>>(() => {
+    try {
+      const raw = window.localStorage.getItem("mergeHistory");
+      if (!raw) return {};
+      return JSON.parse(raw) as Record<number, BaseTable[]>;
+    } catch {
+      return {};
+    }
+  });
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(
     null
@@ -177,7 +267,7 @@ export const App: React.FC = () => {
   const [adminSelection, setAdminSelection] = useState<number[]>([]);
   const [lang, setLang] = useState<Lang>("fr");
   const [reservationDurationMinutes, setReservationDurationMinutes] = useState<number>(120);
-  const [checkinTableId, setCheckinTableId] = useState<number | null>(null);
+  const [bookingEntry, setBookingEntry] = useState<BookingEntry>(null);
 
   const disableAuth =
     (typeof window !== "undefined" && (import.meta as any).env?.VITE_DISABLE_AUTH === "1") ||
@@ -190,53 +280,19 @@ export const App: React.FC = () => {
       String((import.meta as any).env?.VITE_EMAIL_ONLY_LOGIN || "").toLowerCase() === "true");
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("checkin") === "1") {
-      const tid = Number(params.get("tableId"));
-      if (tid) {
-        setCheckinTableId(tid);
-        setScreen("checkin");
-      }
-    }
-  }, []);
-
-  useEffect(() => {
     if (disableAuth) {
       setAdminMode(true);
       setAdminLoginOpen(false);
     }
   }, [disableAuth]);
 
-  const publicBaseUrl =
-    (typeof window !== "undefined" && (import.meta as any).env?.VITE_PUBLIC_BASE_URL) ||
-    "";
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const qrBase = String(publicBaseUrl || origin).replace(/\/+$/, "");
-  const tableQrValue = (tableId: number) => `${qrBase}/?checkin=1&tableId=${tableId}`;
-
-  const doCheckin = async () => {
-    if (!checkinTableId) return;
-    setMessage("");
-    try {
-      const res = await fetch("/api/checkin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tableId: checkinTableId }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setMessage((data as { error?: string }).error || "Impossible de confirmer.");
-        return;
-      }
-      setMessage("Réservation confirmée.");
-    } catch {
-      setMessage("Erreur réseau.");
-    }
-  };
   const [dishes, setDishes] = useState<Dish[]>([]);
   const [adminDishes, setAdminDishes] = useState<Dish[]>([]);
   const [adminSection, setAdminSection] = useState<"tables" | "dishes">("tables");
   const [dishName, setDishName] = useState("");
+  const [dishNameEn, setDishNameEn] = useState("");
+  const [dishNameNl, setDishNameNl] = useState("");
+  const [dishNameEs, setDishNameEs] = useState("");
   const [dishPrice, setDishPrice] = useState("");
   const [dishImagePreview, setDishImagePreview] = useState<string>("");
   const [dishIsQuick, setDishIsQuick] = useState<boolean>(false);
@@ -267,18 +323,61 @@ export const App: React.FC = () => {
       const res = await fetch("/api/admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          emailOnlyLogin ? { email: adminEmail } : { email: adminEmail, password: adminPassword }
-        ),
+        body: JSON.stringify({
+          email: String(adminEmail).trim(),
+          password: adminPassword,
+        }),
       });
-      const data = await res.json().catch(() => ({}));
+      const raw = await res.text();
+      let data: { error?: string; token?: string } = {};
+      if (raw) {
+        try {
+          data = JSON.parse(raw) as { error?: string; token?: string };
+        } catch {
+          setMessage(
+            res.ok
+              ? T4(
+                  lang,
+                  "Réponse serveur invalide.",
+                  "Invalid server response.",
+                  "Ongeldige serverreactie.",
+                  "Respuesta del servidor no válida."
+                )
+              : T4(
+                  lang,
+                  "L'API ne répond pas (JSON attendu). Lancez le backend : dossier backend, npm run dev (port 4000), puis le frontend en npm run dev.",
+                  "The API did not return JSON. Start the backend (folder backend, npm run dev on port 4000), then the frontend with npm run dev.",
+                  "De API gaf geen JSON terug. Start de backend (map backend, npm run dev op poort 4000), daarna de frontend met npm run dev.",
+                  "La API no devolvió JSON. Inicie el backend (carpeta backend, npm run dev en el puerto 4000) y luego el frontend con npm run dev."
+                )
+          );
+          return;
+        }
+      }
       if (!res.ok) {
-        setMessage((data as { error?: string }).error || "Identifiants invalides.");
+        setMessage(
+          (data as { error?: string }).error ||
+            T4(
+              lang,
+              "Identifiants invalides.",
+              "Invalid credentials.",
+              "Ongeldige inloggegevens.",
+              "Credenciales no válidas."
+            )
+        );
         return;
       }
       const token = (data as { token?: string }).token || "";
       if (!token) {
-        setMessage("Réponse serveur invalide.");
+        setMessage(
+          T4(
+            lang,
+            "Réponse serveur invalide.",
+            "Invalid server response.",
+            "Ongeldige serverreactie.",
+            "Respuesta del servidor no válida."
+          )
+        );
         return;
       }
       setAdminToken(token);
@@ -286,7 +385,15 @@ export const App: React.FC = () => {
       setAdminLoginOpen(false);
       setAdminMode(true);
     } catch {
-      setMessage("Erreur réseau. Le serveur est-il démarré ?");
+      setMessage(
+        T4(
+          lang,
+          "Erreur réseau. Le serveur est-il démarré ?",
+          "Network error. Is the server running?",
+          "Netwerkfout. Draait de server?",
+          "Error de red. ¿Está el servidor en ejecución?"
+        )
+      );
     }
   };
 
@@ -312,6 +419,8 @@ export const App: React.FC = () => {
       backToMenu: "Retour au menu",
       fillAllFields: "Merci de remplir tous les champs.",
       loadError: "Erreur lors du chargement des disponibilités.",
+      loadNetworkError:
+        "Impossible de joindre le serveur. Lancez le backend (port 4000) et vérifiez la base de données.",
       noTables: "Aucune table disponible pour ce créneau.",
       chooseTableAndName:
         "Merci de choisir une table et de saisir votre nom.",
@@ -340,13 +449,48 @@ export const App: React.FC = () => {
       noDishesYet: "Aucun plat pour l'instant.",
       dishesSectionTitle: "Gestion des plats",
       manageDishes: "Menu / Plats",
-      manageTables: "Tables",
+      manageTables: "Les tables",
       quickPass: "Passage rapide",
       quickPrepLabel: "Préparation rapide",
       quickPrepBadge: "Rapide",
       firstFreeNow: "Première table disponible : maintenant",
       firstFreeIn: (min: number, at: string) =>
         `Première table disponible dans ${min} min (à ${at})`,
+      bookingBannerQuick:
+        "Passage rapide — la table est réservée pour 1 heure à partir de l’heure indiquée.",
+      bookingBannerStandard:
+        "Réserver maintenant — réservation classique : la table est réservée pour 2 heures à partir de l’heure indiquée.",
+      optionalShort: "(optionnel)",
+      dishI18nHint:
+        "Noms EN / NL / ES : affichés quand le client choisit cette langue ; laisser vide pour réutiliser le nom principal.",
+      dishNameEnLabel: "Nom (anglais)",
+      dishNameNlLabel: "Nom (néerlandais)",
+      dishNameEsLabel: "Nom (espagnol)",
+      adminLoginTitle: "Accès restaurateur",
+      adminLoginHelp:
+        "Connexion réservée à la gestion des tables et du menu. Les clients peuvent consulter le menu sans compte.",
+      adminEmailLabel: "Email",
+      adminPasswordLabel: "Mot de passe",
+      adminBtnLogin: "Se connecter",
+      adminBtnCancel: "Annuler",
+      adminSetupHint:
+        "Compte intégré : voir les fichiers devTestCredentials.ts (backend + frontend). Sinon POST /api/admin/setup si la base est vide.",
+      checkinTitle: "Enregistrement",
+      checkinTableLine: (id: string | number) => `Table n°${id}`,
+      checkinConfirm: "Confirmer la réservation",
+      checkinBack: "Retour",
+      landingKicker: "Fine dining",
+      landingTitle: "Une expérience culinaire authentique vous attend",
+      landingDesc:
+        "Réservez une table en quelques secondes, découvrez notre menu, ou consultez le plan des tables.",
+      brandTagline: "Restaurant",
+      promptTableName: "Nom de la table (ex: T1) :",
+      promptTableCapacity: "Capacité (ex: 4) :",
+      promptTableShape: "Forme (r = ronde, c = carrée, rect = rectangulaire) :",
+      guestsAbbr: "pers.",
+      reservationTableHeading: (n: string) => `Table ${n}`,
+      cancel: "Annuler",
+      networkError: "Erreur réseau.",
     },
     en: {
       kioskTitle: "Reservation kiosk",
@@ -369,6 +513,8 @@ export const App: React.FC = () => {
       backToMenu: "Back to menu",
       fillAllFields: "Please fill in all fields.",
       loadError: "Error while loading availability.",
+      loadNetworkError:
+        "Cannot reach the server. Start the backend (port 4000) and check the database.",
       noTables: "No table available for this time.",
       chooseTableAndName: "Please choose a table and enter your name.",
       tableBusy: "This table is busy for this time slot.",
@@ -403,6 +549,40 @@ export const App: React.FC = () => {
       firstFreeNow: "First table available: now",
       firstFreeIn: (min: number, at: string) =>
         `First table available in ${min} min (at ${at})`,
+      bookingBannerQuick: "Quick pass — your table is booked for 1 hour from the selected time.",
+      bookingBannerStandard:
+        "Book for now — standard reservation: your table is booked for 2 hours from the selected time.",
+      optionalShort: "(optional)",
+      dishI18nHint:
+        "EN / NL / ES names: shown when the guest picks that language; leave blank to use the main name.",
+      dishNameEnLabel: "Name (English)",
+      dishNameNlLabel: "Name (Dutch)",
+      dishNameEsLabel: "Name (Spanish)",
+      adminLoginTitle: "Staff access",
+      adminLoginHelp:
+        "Sign in to manage tables and the menu. Guests can browse the menu without an account.",
+      adminEmailLabel: "Email",
+      adminPasswordLabel: "Password",
+      adminBtnLogin: "Sign in",
+      adminBtnCancel: "Cancel",
+      adminSetupHint:
+        "Built-in account: see devTestCredentials.ts (backend + frontend). Otherwise POST /api/admin/setup if the database is empty.",
+      checkinTitle: "Check-in",
+      checkinTableLine: (id: string | number) => `Table #${id}`,
+      checkinConfirm: "Confirm reservation",
+      checkinBack: "Back",
+      landingKicker: "Fine dining",
+      landingTitle: "An authentic culinary experience awaits",
+      landingDesc:
+        "Book a table in seconds, explore our menu, or view the floor plan.",
+      brandTagline: "Restaurant",
+      promptTableName: "Table name (e.g. T1):",
+      promptTableCapacity: "Capacity (e.g. 4):",
+      promptTableShape: "Shape (r = round, c = square, rect = rectangle):",
+      guestsAbbr: "guests",
+      reservationTableHeading: (n: string) => `Table ${n}`,
+      cancel: "Cancel",
+      networkError: "Network error.",
     },
     nl: {
       kioskTitle: "Reservatiezuil",
@@ -425,6 +605,8 @@ export const App: React.FC = () => {
       backToMenu: "Terug naar menu",
       fillAllFields: "Gelieve alle velden in te vullen.",
       loadError: "Fout bij het laden van de beschikbaarheid.",
+      loadNetworkError:
+        "Kan de server niet bereiken. Start de backend (poort 4000) en controleer de database.",
       noTables: "Geen tafel beschikbaar voor dit tijdstip.",
       chooseTableAndName:
         "Gelieve een tafel te kiezen en uw naam in te vullen.",
@@ -460,6 +642,41 @@ export const App: React.FC = () => {
       firstFreeNow: "Eerste tafel beschikbaar: nu",
       firstFreeIn: (min: number, at: string) =>
         `Eerste tafel beschikbaar over ${min} min (om ${at})`,
+      bookingBannerQuick:
+        "Snelle passage — uw tafel is 1 uur gereserveerd vanaf het gekozen tijdstip.",
+      bookingBannerStandard:
+        "Nu reserveren — klassieke reservatie: uw tafel is 2 uur gereserveerd vanaf het gekozen tijdstip.",
+      optionalShort: "(optioneel)",
+      dishI18nHint:
+        "EN / NL / ES namen: getoond als de gast die taal kiest; leeg laten om de hoofdnaam te gebruiken.",
+      dishNameEnLabel: "Naam (Engels)",
+      dishNameNlLabel: "Naam (Nederlands)",
+      dishNameEsLabel: "Naam (Spaans)",
+      adminLoginTitle: "Toegang restaurateur",
+      adminLoginHelp:
+        "Aanmelden om tafels en het menu te beheren. Gasten kunnen het menu zonder account bekijken.",
+      adminEmailLabel: "E-mail",
+      adminPasswordLabel: "Wachtwoord",
+      adminBtnLogin: "Aanmelden",
+      adminBtnCancel: "Annuleren",
+      adminSetupHint:
+        "Ingebouwd account: zie devTestCredentials.ts (backend + frontend). Anders POST /api/admin/setup als de database leeg is.",
+      checkinTitle: "Inchecken",
+      checkinTableLine: (id: string | number) => `Tafel nr. ${id}`,
+      checkinConfirm: "Reservatie bevestigen",
+      checkinBack: "Terug",
+      landingKicker: "Fine dining",
+      landingTitle: "Een authentieke culinaire ervaring wacht op u",
+      landingDesc:
+        "Reserveer in enkele seconden een tafel, ontdek ons menu of bekijk het plattegrondplan.",
+      brandTagline: "Restaurant",
+      promptTableName: "Tafelnaam (bv. T1):",
+      promptTableCapacity: "Capaciteit (bv. 4):",
+      promptTableShape: "Vorm (r = rond, c = vierkant, rect = rechthoek):",
+      guestsAbbr: "pers.",
+      reservationTableHeading: (n: string) => `Tafel ${n}`,
+      cancel: "Annuleren",
+      networkError: "Netwerkfout.",
     },
     es: {
       kioskTitle: "Terminal de reservas",
@@ -482,6 +699,8 @@ export const App: React.FC = () => {
       backToMenu: "Volver al menú",
       fillAllFields: "Por favor completa todos los campos.",
       loadError: "Error al cargar la disponibilidad.",
+      loadNetworkError:
+        "No se puede contactar al servidor. Inicie el backend (puerto 4000) y compruebe la base de datos.",
       noTables: "No hay mesas disponibles para este horario.",
       chooseTableAndName:
         "Por favor elige una mesa e introduce tu nombre.",
@@ -517,6 +736,41 @@ export const App: React.FC = () => {
       firstFreeNow: "Primera mesa disponible: ahora",
       firstFreeIn: (min: number, at: string) =>
         `Primera mesa disponible en ${min} min (a las ${at})`,
+      bookingBannerQuick:
+        "Paso rápido — la mesa queda reservada 1 hora desde la hora indicada.",
+      bookingBannerStandard:
+        "Reservar para ahora — reserva clásica: la mesa queda reservada 2 horas desde la hora indicada.",
+      optionalShort: "(opcional)",
+      dishI18nHint:
+        "Nombres EN / NL / ES: se muestran si el cliente elige ese idioma; déjelos en blanco para usar el nombre principal.",
+      dishNameEnLabel: "Nombre (inglés)",
+      dishNameNlLabel: "Nombre (neerlandés)",
+      dishNameEsLabel: "Nombre (español)",
+      adminLoginTitle: "Acceso restaurador",
+      adminLoginHelp:
+        "Inicie sesión para gestionar mesas y menú. Los clientes pueden ver el menú sin cuenta.",
+      adminEmailLabel: "Correo",
+      adminPasswordLabel: "Contraseña",
+      adminBtnLogin: "Entrar",
+      adminBtnCancel: "Cancelar",
+      adminSetupHint:
+        "Cuenta de prueba: vea devTestCredentials.ts (backend + frontend). O POST /api/admin/setup si la base está vacía.",
+      checkinTitle: "Registro",
+      checkinTableLine: (id: string | number) => `Mesa n.º ${id}`,
+      checkinConfirm: "Confirmar reserva",
+      checkinBack: "Volver",
+      landingKicker: "Alta cocina",
+      landingTitle: "Le espera una experiencia culinaria auténtica",
+      landingDesc:
+        "Reserve una mesa en segundos, descubra nuestro menú o consulte el plano de mesas.",
+      brandTagline: "Restaurante",
+      promptTableName: "Nombre de la mesa (ej. T1):",
+      promptTableCapacity: "Capacidad (ej. 4):",
+      promptTableShape: "Forma (r = redonda, c = cuadrada, rect = rectangular):",
+      guestsAbbr: "pers.",
+      reservationTableHeading: (n: string) => `Mesa ${n}`,
+      cancel: "Cancelar",
+      networkError: "Error de red.",
     },
   }[lang];
 
@@ -595,64 +849,18 @@ export const App: React.FC = () => {
     if (screen === "dishes") loadDishes();
   }, [screen]);
 
-  if (adminLoginOpen && !adminMode && !disableAuth) {
-    return (
-      <div className="app">
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-          <h1>{t.kioskTitle}</h1>
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            <button onClick={() => setLang("fr")}>FR</button>
-            <button onClick={() => setLang("en")}>EN</button>
-            <button onClick={() => setLang("nl")}>NL</button>
-            <button onClick={() => setLang("es")}>ES</button>
-          </div>
-        </div>
+  useEffect(() => {
+    if (!adminMode) loadDishes();
+  }, [adminMode]);
 
-        <div className="card" style={{ maxWidth: 420 }}>
-          <h2>Accès restaurateur</h2>
-          <form onSubmit={submitAdminLogin} className="dish-form" style={{ marginBottom: 0 }}>
-            <label style={{ minWidth: "100%" }}>
-              Email
-              <input
-                type="email"
-                value={adminEmail}
-                onChange={(e) => setAdminEmail(e.target.value)}
-                autoFocus
-                required
-              />
-            </label>
-            {!emailOnlyLogin && (
-              <label style={{ minWidth: "100%" }}>
-                Mot de passe
-                <input
-                  type="password"
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                  required
-                />
-              </label>
-            )}
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              <button type="submit">Se connecter</button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAdminLoginOpen(false);
-                  setMessage("");
-                }}
-              >
-                Annuler
-              </button>
-            </div>
-          </form>
-          {message && <div className="message">{message}</div>}
-          <small style={{ color: "#94a3b8" }}>
-            Si c’est la 1ère fois, il faut créer le compte via l’endpoint setup (je te donne la commande juste après).
-          </small>
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (screen === "menu" || screen === "dishes") {
+      setMessage("");
+    }
+    if (screen === "menu") {
+      setBookingEntry(null);
+    }
+  }, [screen]);
 
   const loadAvailability = async () => {
     setMessage("");
@@ -663,19 +871,23 @@ export const App: React.FC = () => {
       return;
     }
 
-    const res = await fetch(
-      `/api/plan-status?date=${encodeURIComponent(
-        date
-      )}&time=${encodeURIComponent(time)}&guests=${guests}&durationMinutes=${reservationDurationMinutes}`
-    );
-    if (!res.ok) {
-      setMessage(t.loadError);
-      return;
-    }
-    const data: AvailabilityResponse = await res.json();
-    setTables(data);
-    if (data.length === 0) {
-      setMessage(t.noTables);
+    try {
+      const res = await fetch(
+        `/api/plan-status?date=${encodeURIComponent(
+          date
+        )}&time=${encodeURIComponent(time)}&guests=${guests}&durationMinutes=${reservationDurationMinutes}`
+      );
+      if (!res.ok) {
+        setMessage(t.loadError);
+        return;
+      }
+      const data: AvailabilityResponse = await res.json();
+      setTables(data);
+      if (data.length === 0) {
+        setMessage(t.noTables);
+      }
+    } catch {
+      setMessage(t.loadNetworkError as string);
     }
   };
 
@@ -765,9 +977,9 @@ export const App: React.FC = () => {
   };
 
   const addTable = async () => {
-    const name = window.prompt("Nom de la table (ex: T1) :");
+    const name = window.prompt(t.promptTableName as string);
     if (!name) return;
-    const capacityStr = window.prompt("Capacité (ex: 4) :");
+    const capacityStr = window.prompt(t.promptTableCapacity as string);
     const capacity = capacityStr ? Number(capacityStr) : NaN;
     if (!capacity || Number.isNaN(capacity)) {
       setMessage(t.invalidCapacity);
@@ -775,17 +987,27 @@ export const App: React.FC = () => {
     }
 
     const shapeInput = window
-      .prompt(
-        "Forme de la table (r = ronde, c = carrée, rect = rectangulaire) :",
-        "r"
-      )
+      .prompt(t.promptTableShape as string, "r")
       ?.toLowerCase()
       .trim();
 
     let shape: string = "ROUND";
-    if (shapeInput === "c" || shapeInput === "carree" || shapeInput === "carrée") {
+    if (
+      shapeInput === "c" ||
+      shapeInput === "carree" ||
+      shapeInput === "carrée" ||
+      shapeInput === "square" ||
+      shapeInput === "vierkant" ||
+      shapeInput === "cuadrado"
+    ) {
       shape = "SQUARE";
-    } else if (shapeInput === "rect" || shapeInput === "rectangulaire") {
+    } else if (
+      shapeInput === "rect" ||
+      shapeInput === "rectangulaire" ||
+      shapeInput === "rectangle" ||
+      shapeInput === "rechthoek" ||
+      shapeInput === "rectangular"
+    ) {
       shape = "RECTANGLE";
     }
 
@@ -817,10 +1039,27 @@ export const App: React.FC = () => {
   };
 
   const deleteTable = async (id: number) => {
-    await adminFetch(`/api/tables/${id}`, {
-      method: "DELETE",
-    });
+    try {
+      const res = await adminFetch(`/api/tables/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setMessage(data.error || t.mergeError);
+        return;
+      }
+    } catch {
+      setMessage(t.networkError as string);
+      return;
+    }
     setAdminSelection((prev) => prev.filter((x) => x !== id));
+    setMergeHistory((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      window.localStorage.setItem("mergeHistory", JSON.stringify(next));
+      return next;
+    });
     loadAllTables();
   };
 
@@ -848,8 +1087,19 @@ export const App: React.FC = () => {
       return;
     }
     setMessage("");
-    const body: { name: string; price: number; imageBase64?: string; isQuick?: boolean } = {
+    const body: {
+      name: string;
+      nameEn: string;
+      nameNl: string;
+      nameEs: string;
+      price: number;
+      imageBase64?: string;
+      isQuick?: boolean;
+    } = {
       name,
+      nameEn: dishNameEn.trim(),
+      nameNl: dishNameNl.trim(),
+      nameEs: dishNameEs.trim(),
       price,
       isQuick: dishIsQuick,
     };
@@ -868,18 +1118,24 @@ export const App: React.FC = () => {
       }
       setEditingDishId(null);
       setDishName("");
+      setDishNameEn("");
+      setDishNameNl("");
+      setDishNameEs("");
       setDishPrice("");
       setDishImagePreview("");
       if (editFileInputRef.current) editFileInputRef.current.value = "";
       loadAdminDishes();
     } catch {
-      setMessage("Erreur réseau.");
+      setMessage(t.networkError as string);
     }
   };
 
   const startEditDish = (d: Dish) => {
     setEditingDishId(d.id);
     setDishName(d.name);
+    setDishNameEn((d.nameEn ?? "").trim());
+    setDishNameNl((d.nameNl ?? "").trim());
+    setDishNameEs((d.nameEs ?? "").trim());
     setDishPrice(String(d.price));
     setDishImagePreview(d.imageUrl || "");
     setDishIsQuick(Boolean(d.isQuick));
@@ -888,6 +1144,9 @@ export const App: React.FC = () => {
   const cancelEditDish = () => {
     setEditingDishId(null);
     setDishName("");
+    setDishNameEn("");
+    setDishNameNl("");
+    setDishNameEs("");
     setDishPrice("");
     setDishImagePreview("");
     setDishIsQuick(false);
@@ -919,36 +1178,99 @@ export const App: React.FC = () => {
         .join("+")
         .slice(0, 20);
 
-    const res = await adminFetch("/api/tables", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        name,
-        capacity: totalCapacity,
-        posX: Math.round(avgX),
-        posY: Math.round(avgY),
-        shape: "RECTANGLE",
-      }),
-    });
+    let newId: number | null = null;
+    try {
+      const res = await adminFetch("/api/tables", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name,
+          capacity: totalCapacity,
+          posX: Math.round(avgX),
+          posY: Math.round(avgY),
+          shape: "RECTANGLE",
+        }),
+      });
 
-    if (!res.ok) {
-      setMessage(t.mergeError);
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setMessage(data.error || t.mergeError);
+        return;
+      }
+      const created = (await res.json().catch(() => null)) as BaseTable | null;
+      newId = typeof created?.id === "number" ? created.id : null;
+
+      // Désactiver les anciennes tables
+      const delResults = await Promise.all(
+        selected.map((t) =>
+          adminFetch(`/api/tables/${t.id}`, {
+            method: "DELETE",
+          })
+        )
+      );
+      const firstFailed = delResults.find((r) => !r.ok);
+      if (firstFailed) {
+        const data = (await firstFailed.json().catch(() => ({}))) as { error?: string };
+        setMessage(data.error || t.mergeError);
+        return;
+      }
+    } catch {
+      setMessage(t.networkError as string);
       return;
     }
 
-    // Désactiver les anciennes tables
+    if (typeof newId === "number") {
+      setMergeHistory((prev) => {
+        const next = { ...prev, [newId]: selected };
+        window.localStorage.setItem("mergeHistory", JSON.stringify(next));
+        return next;
+      });
+      setAdminSelection([newId]);
+    } else {
+      setAdminSelection([]);
+    }
+    setMessage("");
+    loadAllTables();
+  };
+
+  const splitSelectedTable = async () => {
+    if (adminSelection.length !== 1) return;
+    const mergedId = adminSelection[0];
+    const originals = mergeHistory[mergedId];
+    if (!originals || originals.length < 2) return;
+
+    setMessage("");
+    // Recréer les tables originales
     await Promise.all(
-      selected.map((t) =>
-        adminFetch(`/api/tables/${t.id}`, {
-          method: "DELETE",
+      originals.map((ot) =>
+        adminFetch("/api/tables", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: ot.name,
+            capacity: ot.capacity,
+            posX: Math.round(ot.posX),
+            posY: Math.round(ot.posY),
+            shape: ot.shape,
+          }),
         })
       )
     );
 
+    // Supprimer la table fusionnée
+    await deleteTable(mergedId);
+
+    // Nettoyer l'historique
+    setMergeHistory((prev) => {
+      const next = { ...prev };
+      delete next[mergedId];
+      window.localStorage.setItem("mergeHistory", JSON.stringify(next));
+      return next;
+    });
+
     setAdminSelection([]);
-    setMessage("");
     loadAllTables();
   };
 
@@ -969,27 +1291,41 @@ export const App: React.FC = () => {
           </div>
           <div className="admin-actions">
             <button
+              type="button"
+              className={"admin-nav-btn" + (adminSection === "tables" ? " is-active" : "")}
               onClick={() => setAdminSection("tables")}
-              style={{
-                background: adminSection === "tables" ? "#22c55e" : "transparent",
-                border: "1px solid #4b5563",
-              }}
             >
               {t.manageTables}
             </button>
             <button
+              type="button"
+              className={"admin-nav-btn" + (adminSection === "dishes" ? " is-active" : "")}
               onClick={() => setAdminSection("dishes")}
-              style={{
-                background: adminSection === "dishes" ? "#22c55e" : "transparent",
-                border: "1px solid #4b5563",
-              }}
             >
               {t.manageDishes}
             </button>
             {adminSection === "tables" && (
-              <button onClick={addTable}>{t.addTable}</button>
+              <button type="button" className="admin-toolbar-btn" onClick={addTable}>
+                {t.addTable}
+              </button>
             )}
-            <button onClick={handleAdminToggle}>{t.backToClient}</button>
+            {adminSection === "dishes" && (
+              <button
+                type="button"
+                className="admin-toolbar-btn"
+                onClick={() =>
+                  document.getElementById("admin-add-dish")?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start",
+                  })
+                }
+              >
+                {t.addDish}
+              </button>
+            )}
+            <button type="button" className="admin-back-btn" onClick={handleAdminToggle}>
+              {t.backToClient}
+            </button>
           </div>
         </div>
 
@@ -998,33 +1334,52 @@ export const App: React.FC = () => {
             <aside className="admin-sidebar">
               <h3>{t.tablesLabel}</h3>
               <small>{t.tablesHelp}</small>
-              <button onClick={mergeSelectedTables}>{t.mergeTables}</button>
+              <div className="admin-table-actions">
+                <button className="btn" onClick={mergeSelectedTables}>
+                  {t.mergeTables}
+                </button>
+                <button
+                  className="btn ghost"
+                  onClick={splitSelectedTable}
+                  disabled={adminSelection.length !== 1 || !mergeHistory[adminSelection[0]]}
+                  title={
+                    adminSelection.length !== 1
+                      ? "Sélectionnez une seule table fusionnée."
+                      : !mergeHistory[adminSelection[0]]
+                        ? "Cette table n'a pas d'historique de fusion."
+                        : ""
+                  }
+                >
+                  Séparer
+                </button>
+              </div>
               <div className="admin-table-list">
-                {allTables.map((t) => (
+                {allTables.map((tbl) => (
                   <div
-                    key={t.id}
+                    key={tbl.id}
                     className={
                       "admin-table-item" +
-                      (adminSelection.includes(t.id) ? " admin-table-item-active" : "")
+                      (adminSelection.includes(tbl.id) ? " admin-table-item-active" : "")
                     }
-                    onClick={() => toggleAdminSelection(t.id)}
+                    onClick={() => toggleAdminSelection(tbl.id)}
                   >
                     <div>
-                      <strong>{t.name}</strong>
-                      <span> · {t.capacity} pers. · {t.shape}</span>
-                      <div style={{ marginTop: 8 }}>
-                        <QRCodeCanvas value={tableQrValue(t.id)} size={72} includeMargin />
-                      </div>
+                      <strong>{tbl.name}</strong>
+                      <span>
+                        {" "}
+                        · {tbl.capacity} {t.guestsAbbr as string} · {shapeDisplay(lang, tbl.shape)}
+                      </span>
                     </div>
                     <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
                       <span>
-                        x: {Math.round(t.posX)}, y: {Math.round(t.posY)}
+                        x: {Math.round(tbl.posX)}, y: {Math.round(tbl.posY)}
                       </span>
                       <button
                         type="button"
+                        className="btn danger"
                         onClick={(e) => {
                           e.stopPropagation();
-                          deleteTable(t.id);
+                          deleteTable(tbl.id);
                         }}
                       >
                         {t.delete}
@@ -1068,10 +1423,11 @@ export const App: React.FC = () => {
         {adminSection === "dishes" && (
           <div className="admin-dishes-section">
             <h3>{t.dishesSectionTitle}</h3>
-            <div className="add-dish-block">
+            <div className="add-dish-block" id="admin-add-dish">
               <h4>{t.addDish}</h4>
               <AddDishForm
                 t={t}
+                lang={lang}
                 resetTrigger={addFormKey}
                 onSuccess={() => {
                   loadAdminDishes();
@@ -1094,6 +1450,24 @@ export const App: React.FC = () => {
                       required
                     />
                   </label>
+                  <p
+                    className="dish-i18n-hint"
+                    style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "var(--muted)" }}
+                  >
+                    {t.dishI18nHint as string}
+                  </p>
+                  <label>
+                    {t.dishNameEnLabel as string}
+                    <input type="text" value={dishNameEn} onChange={(e) => setDishNameEn(e.target.value)} />
+                  </label>
+                  <label>
+                    {t.dishNameNlLabel as string}
+                    <input type="text" value={dishNameNl} onChange={(e) => setDishNameNl(e.target.value)} />
+                  </label>
+                  <label>
+                    {t.dishNameEsLabel as string}
+                    <input type="text" value={dishNameEs} onChange={(e) => setDishNameEs(e.target.value)} />
+                  </label>
                   <label>
                     {t.priceLabel}
                     <input
@@ -1106,7 +1480,8 @@ export const App: React.FC = () => {
                     />
                   </label>
                   <label>
-                    {t.imageLabel} <span className="optional">(optionnel)</span>
+                    {t.imageLabel}{" "}
+                    <span className="optional">{t.optionalShort as string}</span>
                     <input
                       ref={editFileInputRef}
                       type="file"
@@ -1128,14 +1503,28 @@ export const App: React.FC = () => {
                       <span>{t.imagePreview}</span>
                       <img
                         src={dishImagePreview || adminDishes.find((d) => d.id === editingDishId)?.imageUrl || ""}
-                        alt=""
+                        alt={dishDisplayName(
+                          {
+                            id: editingDishId ?? 0,
+                            name: dishName,
+                            nameEn: dishNameEn,
+                            nameNl: dishNameNl,
+                            nameEs: dishNameEs,
+                            price: Number(dishPrice) || 0,
+                            imageUrl: "",
+                            isQuick: dishIsQuick,
+                          },
+                          lang
+                        )}
                       />
                     </div>
                   )}
-                  <div style={{ display: "flex", gap: "0.5rem" }}>
-                    <button type="submit">{t.saveDish}</button>
-                    <button type="button" onClick={cancelEditDish}>
-                      Annuler
+                  <div className="dish-form-actions">
+                    <button type="submit" className="btn primary">
+                      {t.saveDish}
+                    </button>
+                    <button type="button" className="btn ghost" onClick={cancelEditDish}>
+                      {t.cancel as string}
                     </button>
                   </div>
                 </form>
@@ -1146,20 +1535,20 @@ export const App: React.FC = () => {
               {adminDishes.map((d) => (
                 <div key={d.id} className="dish-card admin-dish-card">
                   {d.imageUrl && (
-                    <img src={d.imageUrl} alt={d.name} />
+                    <img src={d.imageUrl} alt={dishDisplayName(d, lang)} />
                   )}
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                      <strong>{d.name}</strong>
+                      <strong>{dishDisplayName(d, lang)}</strong>
                       {d.isQuick && <span className="dish-badge">{t.quickPrepBadge}</span>}
                     </div>
                     <span> — {d.price} €</span>
                   </div>
-                  <div style={{ display: "flex", gap: "0.4rem" }}>
-                    <button type="button" onClick={() => startEditDish(d)}>
+                  <div className="admin-dish-actions">
+                    <button type="button" className="btn" onClick={() => startEditDish(d)}>
                       {t.editDish}
                     </button>
-                    <button type="button" onClick={() => deleteDish(d.id)}>
+                    <button type="button" className="btn danger" onClick={() => deleteDish(d.id)}>
                       {t.delete}
                     </button>
                   </div>
@@ -1176,10 +1565,69 @@ export const App: React.FC = () => {
 
   return (
     <div className="app">
+      {adminLoginOpen && !adminMode && !disableAuth && (
+        <div
+          className="admin-login-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="admin-login-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setAdminLoginOpen(false);
+              setMessage("");
+            }
+          }}
+        >
+          <div className="card admin-login-card" onClick={(e) => e.stopPropagation()}>
+            <h2 id="admin-login-title">{t.adminLoginTitle as string}</h2>
+            <p style={{ color: "var(--muted)", fontSize: "0.9rem", marginTop: 0 }}>
+              {t.adminLoginHelp as string}
+            </p>
+            <form onSubmit={submitAdminLogin} className="dish-form" style={{ marginBottom: 0 }}>
+              <label style={{ minWidth: "100%" }}>
+                {t.adminEmailLabel as string}
+                <input
+                  type="email"
+                  value={adminEmail}
+                  onChange={(e) => setAdminEmail(e.target.value)}
+                  autoFocus
+                  required
+                />
+              </label>
+              {!emailOnlyLogin && (
+                <label style={{ minWidth: "100%" }}>
+                  {t.adminPasswordLabel as string}
+                  <input
+                    type="password"
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    required
+                  />
+                </label>
+              )}
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                <button type="submit">{t.adminBtnLogin as string}</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdminLoginOpen(false);
+                    setMessage("");
+                  }}
+                >
+                  {t.adminBtnCancel as string}
+                </button>
+              </div>
+            </form>
+            {message && <div className="message">{message}</div>}
+            <small style={{ color: "#94a3b8" }}>{t.adminSetupHint as string}</small>
+          </div>
+        </div>
+      )}
+
       <div className="topbar">
         <div className="brand">
           <strong>{t.kioskTitle}</strong>
-          <small>Restaurant</small>
+          <small>{t.brandTagline as string}</small>
         </div>
         <div className="lang-switch">
           <button className={lang === "fr" ? "active" : ""} onClick={() => setLang("fr")}>FR</button>
@@ -1189,38 +1637,22 @@ export const App: React.FC = () => {
         </div>
       </div>
 
-      {screen === "checkin" && (
-        <div className="card" style={{ maxWidth: 520, margin: "0 auto" }}>
-          <h2 className="font-serif" style={{ marginTop: 0 }}>Check‑in</h2>
-          <p style={{ color: "var(--muted)" }}>
-            Table #{checkinTableId || "?"}
-          </p>
-          <button className="btn primary" onClick={doCheckin}>
-            Confirmer la réservation
-          </button>
-          {message && <div className="message">{message}</div>}
-          <div style={{ marginTop: "1rem" }}>
-            <button className="btn" onClick={() => setScreen("menu")}>Retour</button>
-          </div>
-        </div>
-      )}
+      {/* Check-in supprimé */}
 
       {screen === "menu" && (
         <div className="landing">
           <section className="landing-left">
-            <div className="landing-kicker">Fine dining</div>
-            <h2 className="landing-title font-serif">
-              Une expérience culinaire authentique vous attend
-            </h2>
-            <p className="landing-desc">
-              Réservez une table en quelques secondes, découvrez notre menu, ou consultez le plan des tables.
-            </p>
+            <div className="landing-kicker">{t.landingKicker as string}</div>
+            <h2 className="landing-title font-serif">{t.landingTitle as string}</h2>
+            <p className="landing-desc">{t.landingDesc as string}</p>
             <div className="cta-row">
               <button
                 className="btn primary"
                 onClick={() => {
                   setTodayAndNow();
+                  setGuests(2);
                   setReservationDurationMinutes(120);
+                  setBookingEntry("standard");
                   setScreen("now");
                 }}
               >
@@ -1232,6 +1664,7 @@ export const App: React.FC = () => {
                   setTodayAndNow();
                   setGuests(1);
                   setReservationDurationMinutes(60);
+                  setBookingEntry("quick");
                   setScreen("now");
                 }}
               >
@@ -1270,13 +1703,13 @@ export const App: React.FC = () => {
             {dishes.map((d) => (
               <div key={d.id} className="dish-card">
                 {d.imageUrl ? (
-                  <img src={d.imageUrl} alt={d.name} />
+                  <img src={d.imageUrl} alt={dishDisplayName(d, lang)} />
                 ) : (
                   <div className="dish-card-no-image" />
                 )}
                 <div className="dish-card-body">
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
-                    <strong>{d.name}</strong>
+                    <strong>{dishDisplayName(d, lang)}</strong>
                     {d.isQuick && <span className="dish-badge">{t.quickPrepBadge}</span>}
                   </div>
                   <span>{d.price} €</span>
@@ -1284,12 +1717,25 @@ export const App: React.FC = () => {
               </div>
             ))}
           </div>
-          <button
-            onClick={() => setScreen("menu")}
-            style={{ marginTop: "1rem" }}
-          >
-            {t.backToMenu}
-          </button>
+          <div style={{ marginTop: "1.25rem", display: "flex", justifyContent: "center" }}>
+            <button
+              className="btn ghost"
+              onClick={() => {
+                setBookingEntry(null);
+                setScreen("menu");
+              }}
+            >
+              {t.backToMenu}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {screen === "now" && bookingEntry && (
+        <div className="booking-context-banner" role="status">
+          {bookingEntry === "quick"
+            ? (t.bookingBannerQuick as string)
+            : (t.bookingBannerStandard as string)}
         </div>
       )}
 
@@ -1335,6 +1781,7 @@ export const App: React.FC = () => {
             onClick={() => {
               setSelectedTable(null);
               setTables([]);
+              setBookingEntry(null);
               setScreen("menu");
             }}
           >
@@ -1370,7 +1817,7 @@ export const App: React.FC = () => {
 
       {selectedTable && (
         <div className="reservation-panel">
-          <h2>Table {selectedTable.name}</h2>
+          <h2>{(t.reservationTableHeading as (n: string) => string)(selectedTable.name)}</h2>
           <p>{t.tableCapacity(selectedTable.capacity)}</p>
           {selectedTable.status === "busy" && selectedTable.busyUntil && (
             <p>{t.busyUntil(selectedTable.busyUntil)}</p>

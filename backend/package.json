@@ -15,8 +15,10 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
-    "render-build": "npm run prisma:generate && npm run build",
-    "start:render": "sh -c 'prisma db push && node dist/server.js'"
+    "build:deploy": "npm run prisma:generate && npm run build",
+    "start:deploy": "prisma migrate deploy && node dist/server.js",
+    "render-build": "npm run build:deploy",
+    "start:render": "npm run start:deploy"
   },
   "dependencies": {
     "@prisma/client": "^5.0.0",
