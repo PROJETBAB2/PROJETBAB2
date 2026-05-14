@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { DEV_TEST_RESTAURATEUR } from "./devTestCredentials";
 // QR codes supprimés de l'UI restaurateur.
 
@@ -889,36 +889,59 @@ export const App: React.FC = () => {
     }
   }, [screen]);
 
-  const loadAvailability = async () => {
-    setMessage("");
-    setSelectedTable(null);
+  const loadAvailability = useCallback(
+    async (opts?: { silent?: boolean; signal?: AbortSignal }) => {
+      const silent = opts?.silent ?? false;
+      const signal = opts?.signal;
+      if (!silent) setMessage("");
+      setSelectedTable(null);
 
-    if (!date || !time || !guests) {
-      setMessage(t.fillAllFields);
-      return;
-    }
-
-    try {
-      const res = await fetch(
-        apiUrl(
-          `/api/plan-status?date=${encodeURIComponent(
-            date
-          )}&time=${encodeURIComponent(time)}&guests=${guests}&durationMinutes=${reservationDurationMinutes}`
-        )
-      );
-      if (!res.ok) {
-        setMessage(t.loadError);
+      if (!date || !time || !guests) {
+        setTables([]);
+        if (!silent) setMessage(t.fillAllFields);
         return;
       }
-      const data: AvailabilityResponse = await res.json();
-      setTables(data);
-      if (data.length === 0) {
-        setMessage(t.noTables);
+
+      try {
+        const res = await fetch(
+          apiUrl(
+            `/api/plan-status?date=${encodeURIComponent(
+              date
+            )}&time=${encodeURIComponent(time)}&guests=${guests}&durationMinutes=${reservationDurationMinutes}`
+          ),
+          { signal }
+        );
+        if (!res.ok) {
+          setTables([]);
+          setMessage(t.loadError);
+          return;
+        }
+        const data: AvailabilityResponse = await res.json();
+        setTables(data);
+        if (data.length === 0) {
+          setMessage(t.noTables);
+        }
+      } catch (e: unknown) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setTables([]);
+        setMessage(t.loadNetworkError as string);
       }
-    } catch {
-      setMessage(t.loadNetworkError as string);
-    }
-  };
+    },
+    [date, time, guests, reservationDurationMinutes, lang]
+  );
+
+  /** Recharge le plan dès que la date, l’heure ou les convives changent (écran réservation). */
+  useEffect(() => {
+    if (screen === "menu" || screen === "dishes") return;
+    const ac = new AbortController();
+    const id = window.setTimeout(() => {
+      void loadAvailability({ silent: true, signal: ac.signal });
+    }, 250);
+    return () => {
+      window.clearTimeout(id);
+      ac.abort();
+    };
+  }, [screen, date, time, guests, reservationDurationMinutes, loadAvailability]);
 
   const confirmReservation = async () => {
     if (!selectedTable || !name) {
