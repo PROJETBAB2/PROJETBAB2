@@ -410,6 +410,8 @@ button:active {
 .admin-layout .plan {
   max-width: none;
   margin: 0;
+  /* Évite que le navigateur prenne le geste (scroll) pendant le déplacement tactile des tables */
+  touch-action: none;
 }
 
 .admin-layout {

@@ -286,10 +286,9 @@ export const App: React.FC = () => {
       return {};
     }
   });
-  const [draggingId, setDraggingId] = useState<number | null>(null);
-  const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(
-    null
-  );
+  const draggingIdRef = useRef<number | null>(null);
+  const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
+  const dragCommitRef = useRef<{ id: number; posX: number; posY: number } | null>(null);
   const [screen, setScreen] = useState<Screen>("menu");
   const [adminSelection, setAdminSelection] = useState<number[]>([]);
   const [lang, setLang] = useState<Lang>("fr");
@@ -964,46 +963,71 @@ export const App: React.FC = () => {
   };
 
   const startDrag = (
-    e: React.MouseEvent<HTMLButtonElement>,
+    e: React.PointerEvent<HTMLButtonElement>,
     table: BaseTable
   ) => {
-    const rect = (e.currentTarget.parentElement as HTMLDivElement).getBoundingClientRect();
+    if (!adminMode) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const planEl = e.currentTarget.parentElement as HTMLDivElement;
+    const rect = planEl.getBoundingClientRect();
     const offsetX = e.clientX - rect.left - table.posX;
     const offsetY = e.clientY - rect.top - table.posY;
-    setDraggingId(table.id);
-    setDragOffset({ x: offsetX, y: offsetY });
+    draggingIdRef.current = table.id;
+    dragOffsetRef.current = { x: offsetX, y: offsetY };
+    dragCommitRef.current = {
+      id: table.id,
+      posX: table.posX,
+      posY: table.posY,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
   };
 
-  const onPlanMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!adminMode || draggingId === null || !dragOffset) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left - dragOffset.x;
-    const y = e.clientY - rect.top - dragOffset.y;
+  const onTablePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const id = draggingIdRef.current;
+    const off = dragOffsetRef.current;
+    if (!adminMode || id === null || !off) return;
+    const planEl = e.currentTarget.parentElement as HTMLDivElement;
+    if (!planEl) return;
+    const rect = planEl.getBoundingClientRect();
+    const x = e.clientX - rect.left - off.x;
+    const y = e.clientY - rect.top - off.y;
 
+    dragCommitRef.current = { id, posX: x, posY: y };
     setAllTables((prev) =>
       prev.map((t) =>
-        t.id === draggingId ? { ...t, posX: x, posY: y } : t
+        t.id === id ? { ...t, posX: x, posY: y } : t
       )
     );
   };
 
-  const onPlanMouseUp = async () => {
-    if (!adminMode || draggingId === null) return;
-    const moved = allTables.find((t) => t.id === draggingId);
-    setDraggingId(null);
-    setDragOffset(null);
-    if (!moved) return;
+  const finalizeTableDrag = async () => {
+    if (!adminMode || draggingIdRef.current === null) return;
+    const commit = dragCommitRef.current;
+    draggingIdRef.current = null;
+    dragOffsetRef.current = null;
+    dragCommitRef.current = null;
+    if (!commit) return;
 
-    await adminFetch(`/api/tables/${moved.id}`, {
+    await adminFetch(`/api/tables/${commit.id}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        posX: Math.round(moved.posX),
-        posY: Math.round(moved.posY),
+        posX: Math.round(commit.posX),
+        posY: Math.round(commit.posY),
       }),
     });
+  };
+
+  const onTablePointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (draggingIdRef.current === null) return;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* capture déjà relâchée */
+    }
+    void finalizeTableDrag();
   };
 
   const addTable = async () => {
@@ -1423,12 +1447,7 @@ export const App: React.FC = () => {
               </div>
             </aside>
 
-            <div
-              className="plan"
-              onMouseMove={onPlanMouseMove}
-              onMouseUp={onPlanMouseUp}
-              onMouseLeave={onPlanMouseUp}
-            >
+            <div className="plan">
               {allTables.map((table) => (
                 <button
                   key={table.id}
@@ -1439,8 +1458,12 @@ export const App: React.FC = () => {
                     left: table.posX,
                     top: table.posY,
                     cursor: "grab",
+                    touchAction: "none",
                   }}
-                  onMouseDown={(e) => startDrag(e, table)}
+                  onPointerDown={(e) => startDrag(e, table)}
+                  onPointerMove={onTablePointerMove}
+                  onPointerUp={onTablePointerUp}
+                  onPointerCancel={onTablePointerUp}
                 >
                   {table.name}
                   <span className="capacity">{table.capacity}</span>
